@@ -3,6 +3,7 @@ from typing import List, Optional
 from Common.cache import make_cache
 from Common.CEnum import BI_DIR, BI_TYPE, DATA_FIELD, FX_TYPE, MACD_ALGO
 from Common.ChanException import CChanException, ErrCode
+from Common.CTime import CTime
 from KLine.KLine import CKLine
 from KLine.KLine_Unit import CKLine_Unit
 
@@ -108,15 +109,38 @@ class CBi:
         else:
             raise CChanException("ERROR DIRECTION when creating bi", ErrCode.BI_ERR)
         self.check()
+        self.set_endpoint_prices()
+        self.set_endpoint_times()
+
+    def set_endpoint_prices(self, begin: Optional[float] = None, end: Optional[float] = None):
+        self.__begin_price = begin
+        self.__end_price = end
         self.clean_cache()
+
+    def raw_begin_val(self):
+        return self.begin_klc.low if self.is_up() else self.begin_klc.high
+
+    def set_endpoint_times(self, begin: Optional[CTime] = None, end: Optional[CTime] = None):
+        self.__begin_time = begin
+        self.__end_time = end
+        self.clean_cache()
+
+    def get_begin_time(self) -> CTime:
+        return self.get_begin_klu().time if self.__begin_time is None else self.__begin_time
+
+    def get_end_time(self) -> CTime:
+        return self.get_end_klu().time if self.__end_time is None else self.__end_time
+
+    def raw_end_val(self):
+        return self.end_klc.high if self.is_up() else self.end_klc.low
 
     @make_cache
     def get_begin_val(self):
-        return self.begin_klc.low if self.is_up() else self.begin_klc.high
+        return self.raw_begin_val() if self.__begin_price is None else self.__begin_price
 
     @make_cache
     def get_end_val(self):
-        return self.end_klc.high if self.is_up() else self.end_klc.low
+        return self.raw_end_val() if self.__end_price is None else self.__end_price
 
     @make_cache
     def get_begin_klu(self) -> CKLine_Unit:
@@ -148,11 +172,11 @@ class CBi:
 
     @make_cache
     def _high(self):
-        return self.end_klc.high if self.is_up() else self.begin_klc.high
+        return self.get_end_val() if self.is_up() else self.get_begin_val()
 
     @make_cache
     def _low(self):
-        return self.begin_klc.low if self.is_up() else self.end_klc.low
+        return self.get_begin_val() if self.is_up() else self.get_end_val()
 
     @make_cache
     def _mid(self):
@@ -184,7 +208,8 @@ class CBi:
     def update_new_end(self, new_klc: CKLine):
         self.__end_klc = new_klc
         self.check()
-        self.clean_cache()
+        self.set_endpoint_prices(begin=self.__begin_price)
+        self.set_endpoint_times(begin=self.__begin_time)
 
     def cal_macd_metric(self, macd_algo, is_reverse):
         if macd_algo == MACD_ALGO.AREA:
@@ -305,21 +330,13 @@ class CBi:
 
     @make_cache
     def Cal_MACD_slope(self):
-        begin_klu = self.get_begin_klu()
-        end_klu = self.get_end_klu()
-        if self.is_up():
-            return (end_klu.high - begin_klu.low)/end_klu.high/(end_klu.idx - begin_klu.idx + 1)
-        else:
-            return (begin_klu.high - end_klu.low)/begin_klu.high/(end_klu.idx - begin_klu.idx + 1)
+        begin, end = self.get_begin_val(), self.get_end_val()
+        length = self.get_end_klu().idx - self.get_begin_klu().idx + 1
+        return self.amp() / (end if self.is_up() else begin) / length
 
     @make_cache
     def Cal_MACD_amp(self):
-        begin_klu = self.get_begin_klu()
-        end_klu = self.get_end_klu()
-        if self.is_down():
-            return (begin_klu.high-end_klu.low)/begin_klu.high
-        else:
-            return (end_klu.high-begin_klu.low)/begin_klu.low
+        return self.amp() / self.get_begin_val()
 
     def Cal_MACD_trade_metric(self, metric: str, cal_avg=False) -> float:
         _s = 0

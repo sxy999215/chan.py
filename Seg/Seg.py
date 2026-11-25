@@ -3,6 +3,7 @@ from typing import Generic, List, Optional, Self, TypeVar
 from Bi.Bi import CBi
 from Common.CEnum import BI_DIR, MACD_ALGO, TREND_LINE_SIDE
 from Common.ChanException import CChanException, ErrCode
+from Common.CTime import CTime
 from KLine.KLine_Unit import CKLine_Unit
 from Math.TrendLine import CTrendLine
 
@@ -77,10 +78,14 @@ class CSeg(Generic[LINE_TYPE]):
         self.zs_lst = []
 
     def _low(self):
-        return self.end_bi.get_end_klu().low if self.is_down() else self.start_bi.get_begin_klu().low
+        if self.is_down():
+            return self.get_end_val() if self.end_bi.is_down() else self.get_end_klu().low
+        return self.get_begin_val() if self.start_bi.is_up() else self.get_begin_klu().low
 
     def _high(self):
-        return self.end_bi.get_end_klu().high if self.is_up() else self.start_bi.get_begin_klu().high
+        if self.is_up():
+            return self.get_end_val() if self.end_bi.is_up() else self.get_end_klu().high
+        return self.get_begin_val() if self.start_bi.is_down() else self.get_begin_klu().high
 
     def is_down(self):
         return self.dir == BI_DIR.DOWN
@@ -107,6 +112,12 @@ class CSeg(Generic[LINE_TYPE]):
     def get_begin_klu(self) -> CKLine_Unit:
         return self.start_bi.get_begin_klu()
 
+    def get_begin_time(self) -> CTime:
+        return self.start_bi.get_begin_time()
+
+    def get_end_time(self) -> CTime:
+        return self.end_bi.get_end_time()
+
     def get_klu_cnt(self):
         return self.get_end_klu().idx - self.get_begin_klu().idx + 1
 
@@ -119,20 +130,12 @@ class CSeg(Generic[LINE_TYPE]):
             raise CChanException(f"unsupport macd_algo={macd_algo} of Seg, should be one of slope/amp", ErrCode.PARA_ERROR)
 
     def Cal_MACD_slope(self):
-        begin_klu = self.get_begin_klu()
-        end_klu = self.get_end_klu()
-        if self.is_up():
-            return (end_klu.high - begin_klu.low)/end_klu.high/(end_klu.idx - begin_klu.idx + 1)
-        else:
-            return (begin_klu.high - end_klu.low)/begin_klu.high/(end_klu.idx - begin_klu.idx + 1)
+        high, low = self._high(), self._low()
+        return (high - low) / high / self.get_klu_cnt()
 
     def Cal_MACD_amp(self):
-        begin_klu = self.get_begin_klu()
-        end_klu = self.get_end_klu()
-        if self.is_down():
-            return (begin_klu.high-end_klu.low)/begin_klu.high
-        else:
-            return (end_klu.high-begin_klu.low)/begin_klu.low
+        high, low = self._high(), self._low()
+        return (high - low) / (high if self.is_down() else low)
 
     def update_bi_list(self, bi_lst, idx1, idx2):
         for bi_idx in range(idx1, idx2+1):

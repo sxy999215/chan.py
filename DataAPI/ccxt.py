@@ -4,7 +4,7 @@ import ccxt
 
 from Common.CEnum import AUTYPE, DATA_FIELD, KL_TYPE
 from Common.CTime import CTime
-from Common.func_util import kltype_lt_day, str2float
+from Common.func_util import str2float
 from KLine.KLine_Unit import CKLine_Unit
 
 from .CommonStockAPI import CCommonStockApi
@@ -89,7 +89,7 @@ class CCXT(CCommonStockApi):
             minute = int(inp[14:16])
         else:
             raise Exception(f"unknown time column from TradingView:{inp}")
-        return CTime(year, month, day, hour, minute, auto=not kltype_lt_day(self.k_type))
+        return CTime(year, month, day, hour, minute, auto=False)
 
     def create_item_dict(self, data, column_name):
         for i in range(len(data)):

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class CTime:
@@ -35,7 +35,7 @@ class CTime:
             date = datetime(self.year, self.month, self.day, 23, 59, self.second)
         else:
             date = datetime(self.year, self.month, self.day, self.hour, self.minute, self.second)
-        self.ts = date.timestamp()
+        self.ts = date.replace(tzinfo=timezone.utc).timestamp()
 
     def __gt__(self, t2):
         return self.ts > t2.ts

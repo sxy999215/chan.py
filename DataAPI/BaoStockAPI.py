@@ -36,7 +36,7 @@ def parse_time_column(inp):
         minute = int(inp[14:16])
     else:
         raise Exception(f"unknown time column from baostock:{inp}")
-    return CTime(year, month, day, hour, minute)
+    return CTime(year, month, day, hour, minute, auto=False)
 
 
 def GetColumnNameFromFieldList(fileds: str):

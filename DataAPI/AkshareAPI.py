@@ -33,7 +33,7 @@ def create_item_dict(row, autype):
         month = int(date_str[5:7])
         day = int(date_str[8:10])
 
-    item[DATA_FIELD.FIELD_TIME] = CTime(year, month, day, 0, 0)
+    item[DATA_FIELD.FIELD_TIME] = CTime(year, month, day, 0, 0, auto=False)
     item[DATA_FIELD.FIELD_OPEN] = str2float(row['开盘'])
     item[DATA_FIELD.FIELD_HIGH] = str2float(row['最高'])
     item[DATA_FIELD.FIELD_LOW] = str2float(row['最低'])

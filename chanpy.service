@@ -1,0 +1,21 @@
+[Unit]
+Description=chan.py MT5 calculation service
+After=network.target
+
+[Service]
+Type=simple
+User=chanpy
+Group=chanpy
+WorkingDirectory=/root/chanpy-service
+Environment=CHANPY_PORT=8905
+Environment=CHANPY_TOKEN_FILE=/root/mt5/bridge_token
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /root/chanpy-service/chanpy_server.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

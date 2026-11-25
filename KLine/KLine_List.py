@@ -2,7 +2,7 @@ import copy
 from typing import List, Union, overload
 
 from Bi.Bi import CBi
-from Bi.BiList import CBiList
+from Bi.BiList import CBiList, is_invalid_top
 from BuySellPoint.BSPointList import CBSPointList
 from ChanConfig import CChanConfig
 from Common.CEnum import KLINE_DIR, SEG_TYPE
@@ -37,7 +37,17 @@ class CKLine_List:
         self.kl_type = kl_type
         self.config = conf
         self.lst: List[CKLine] = []  # K线列表，可递归  元素KLine类型
+        self.metric_model_lst = conf.GetMetricModel()
+        self.step_calculation = self.need_cal_step_by_step()
+        self.reset_structure()
+
+    def reset_structure(self):
+        conf = self.config
         self.bi_list = CBiList(bi_conf=conf.bi_conf)
+        self.reset_derived_structure()
+
+    def reset_derived_structure(self):
+        conf = self.config
         self.seg_list: CSegListComm[CBi] = get_seglist_instance(seg_config=conf.seg_conf, lv=SEG_TYPE.BI)
         self.segseg_list: CSegListComm[CSeg[CBi]] = get_seglist_instance(seg_config=conf.seg_conf, lv=SEG_TYPE.SEG)
 
@@ -47,10 +57,7 @@ class CKLine_List:
         self.bs_point_lst = CBSPointList[CBi, CBiList](bs_point_config=conf.bs_point_conf)
         self.seg_bs_point_lst = CBSPointList[CSeg, CSegListComm](bs_point_config=conf.seg_bs_point_conf)
 
-        self.metric_model_lst = conf.GetMetricModel()
-
-        self.step_calculation = self.need_cal_step_by_step()
-
+        self._sure_bi_endpoints = []
         self.last_sure_seg_start_bi_idx = -1
         self.last_sure_segseg_start_bi_idx = -1
 
@@ -79,6 +86,7 @@ class CKLine_List:
                 new_klc.set_pre(new_obj.lst[-1])
             new_obj.lst.append(new_klc)
         new_obj.bi_list = copy.deepcopy(self.bi_list, memo)
+        new_obj._sure_bi_endpoints = copy.deepcopy(self._sure_bi_endpoints, memo)
         new_obj.seg_list = copy.deepcopy(self.seg_list, memo)
         new_obj.segseg_list = copy.deepcopy(self.segseg_list, memo)
         new_obj.zs_list = copy.deepcopy(self.zs_list, memo)
@@ -104,6 +112,20 @@ class CKLine_List:
     def cal_seg_and_zs(self):
         if not self.step_calculation:
             self.bi_list.try_add_virtual_bi(self.lst[-1])
+        self.bi_list.adjust_endpoint_prices(self.lst)
+        # 延长重测与原始极值校正均可能改写已确认的笔端点。
+        # 从当前笔序列构建派生结构，避免逐步计算沿用旧端点的确认结果。
+        sure_endpoints = [
+            (bi, bi.begin_klc.idx, bi.end_klc.idx, bi.get_begin_val(), bi.get_end_val(),
+             bi.get_begin_time().ts, bi.get_end_time().ts)
+            for bi in self.bi_list if bi.is_sure
+        ]
+        if sure_endpoints[:len(self._sure_bi_endpoints)] != self._sure_bi_endpoints:
+            self.reset_derived_structure()
+            for bi in self.bi_list:
+                bi.parent_seg = None
+                bi.bsp = None
+        self._sure_bi_endpoints = sure_endpoints
         self.last_sure_seg_start_bi_idx = cal_seg(self.bi_list, self.seg_list, self.last_sure_seg_start_bi_idx)
         self.zs_list.cal_bi_zs(self.bi_list, self.seg_list)
         update_zs_in_seg(self.bi_list, self.seg_list, self.zs_list)  # 计算seg的zs_lst，以及中枢的bi_in, bi_out
@@ -124,14 +146,29 @@ class CKLine_List:
         if len(self.lst) == 0:
             self.lst.append(CKLine(klu, idx=0))
         else:
+            old_low = self.lst[-1].low
+            bottom = self.bi_list.latest_top_bottom
             _dir = self.lst[-1].try_add(klu)
             if _dir != KLINE_DIR.COMBINE:  # 不需要合并K线
                 self.lst.append(CKLine(klu, idx=len(self.lst), _dir=_dir))
                 if len(self.lst) >= 3:
                     self.lst[-2].update_fx(self.lst[-3], self.lst[-1])
-                if self.bi_list.update_bi(self.lst[-2], self.lst[-1], self.step_calculation) and self.step_calculation:
-                    self.cal_seg_and_zs()
-            elif self.step_calculation and self.bi_list.try_add_virtual_bi(self.lst[-1], need_del_end=True):  # 这里的必要性参见issue#175
+                self.bi_list.update_bi(self.lst[-2], self.lst[-1], self.step_calculation)
+            elif (
+                bottom is not None and self.lst[-1].low < old_low
+                and is_invalid_top(self.lst[-2], bottom)
+                and not is_invalid_top(self.lst[-2], bottom, old_low)
+            ):
+                # 右侧合并 K 线下探使前一顶分型失效，重放成笔以撤回其影响。
+                self.reset_structure()
+                for klc in self.lst[1:-1]:
+                    self.bi_list.update_bi(klc, self.lst[-1], False)
+                if self.step_calculation:
+                    self.bi_list.try_add_virtual_bi(self.lst[-1])
+            elif self.step_calculation:  # 这里的必要性参见issue#175
+                self.bi_list.try_add_virtual_bi(self.lst[-1], need_del_end=True)
+            # 即使笔的分型没变，新增单位 K 线也可能改变末笔的价格。
+            if self.step_calculation and self.bi_list:
                 self.cal_seg_and_zs()
 
     def klu_iter(self, klc_begin_idx=0):
