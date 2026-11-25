@@ -3,6 +3,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib.collections import LineCollection, PatchCollection
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
@@ -285,7 +286,7 @@ class CPlotDriver:
             show_func_helper(eval(f'self.{func}'))
 
     def save2img(self, path):
-        plt.savefig(path, bbox_inches='tight')
+        plt.savefig(path)
 
     def draw_klu(self, meta: CChanPlotMeta, ax: Axes, width=0.4, rugd=True, plot_mode="kl"):
         # rugd: red up green down
@@ -294,19 +295,22 @@ class CPlotDriver:
 
         x_begin = ax.get_xlim()[0]
         _x, _y = [], []
+        bodies = []
+        wicks, wick_colors = [], []
         for kl in meta.klu_iter():
             i = kl.idx
             if i+width < x_begin:
                 continue  # 不绘制范围外的
             if plot_mode == "kl":
                 if kl.close > kl.open:
-                    ax.add_patch(
+                    bodies.append(
                         Rectangle((i - width / 2, kl.open), width, kl.close - kl.open, fill=False, color=up_color))
-                    ax.plot([i, i], [kl.low, kl.open], up_color)
-                    ax.plot([i, i], [kl.close, kl.high], up_color)
+                    wicks.extend(([(i, kl.low), (i, kl.open)], [(i, kl.close), (i, kl.high)]))
+                    wick_colors.extend((up_color, up_color))
                 else:  # 画阴线
-                    ax.add_patch(Rectangle((i - width / 2, kl.open), width, kl.close - kl.open, color=down_color))
-                    ax.plot([i, i], [kl.low, kl.high], color=down_color)
+                    bodies.append(Rectangle((i - width / 2, kl.open), width, kl.close - kl.open, color=down_color))
+                    wicks.append([(i, kl.low), (i, kl.high)])
+                    wick_colors.append(down_color)
             elif plot_mode in "close":
                 _y.append(kl.close)
                 _x.append(i)
@@ -321,6 +325,13 @@ class CPlotDriver:
                 _x.append(i)
             else:
                 raise CChanException(f"unknow plot mode={plot_mode}, must be one of kl/close/open/high/low", ErrCode.PLOT_ERR)
+        if bodies:
+            ax.add_collection(PatchCollection(bodies, match_original=True, joinstyle='miter'))
+        if wicks:
+            # 相邻 K 线的影线可能重叠，保留逐根绘制时的覆盖顺序。
+            ax.add_collection(LineCollection(
+                wicks, colors=wick_colors, capstyle=plt.rcParams['lines.solid_capstyle'],
+                linestyles=plt.rcParams['lines.linestyle']))
         if _x:
             ax.plot(_x, _y)
 
@@ -328,18 +339,21 @@ class CPlotDriver:
         color_type = {FX_TYPE.TOP: 'red', FX_TYPE.BOTTOM: 'blue', KLINE_DIR.UP: 'green', KLINE_DIR.DOWN: 'green'}
         x_begin = ax.get_xlim()[0]
 
+        boxes = []
         for klc_meta in meta.klc_list:
             if klc_meta.klu_list[-1].idx+width < x_begin:
                 continue  # 不绘制范围外的
             if klc_meta.end_idx == klc_meta.begin_idx and not plot_single_kl:
                 continue
-            ax.add_patch(
+            boxes.append(
                 Rectangle(
                     (klc_meta.begin_idx - width, klc_meta.low),
                     klc_meta.end_idx - klc_meta.begin_idx + width*2,
                     klc_meta.high - klc_meta.low,
                     fill=False,
                     color=color_type[klc_meta.type]))
+        if boxes:
+            ax.add_collection(PatchCollection(boxes, match_original=True, joinstyle='miter'))
 
     def draw_bi(
         self,

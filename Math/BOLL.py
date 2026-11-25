@@ -1,5 +1,7 @@
 import math
 
+import numpy as np
+
 
 def _truncate(x):
     return x if x != 0 else 1e-7
@@ -24,5 +26,5 @@ class BollModel:
         if len(self.arr) > self.N:
             self.arr = self.arr[-self.N:]
         ma = sum(self.arr)/len(self.arr)
-        theta = math.sqrt(sum((x-ma)**2 for x in self.arr) / len(self.arr))
+        theta = math.sqrt(np.mean((np.asarray(self.arr) - ma)**2))
         return BOLL_Metric(ma, theta)
